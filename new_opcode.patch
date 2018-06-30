@@ -1,0 +1,69 @@
+diff --git a/Include/opcode.h b/Include/opcode.h
+index 9764109..205266a 100644
+--- a/Include/opcode.h
++++ b/Include/opcode.h
+@@ -149,6 +149,7 @@ extern "C" {
+ 
+ #define SET_ADD         146
+ #define MAP_ADD         147
++#define LOAD_OTUS       148
+ 
+ 
+ enum cmp_op {PyCmp_LT=Py_LT, PyCmp_LE=Py_LE, PyCmp_EQ=Py_EQ, PyCmp_NE=Py_NE, PyCmp_GT=Py_GT, PyCmp_GE=Py_GE,
+diff --git a/Lib/opcode.py b/Lib/opcode.py
+index e403365..d2a1229 100644
+--- a/Lib/opcode.py
++++ b/Lib/opcode.py
+@@ -188,5 +188,6 @@ def_op('EXTENDED_ARG', 145)
+ EXTENDED_ARG = 145
+ def_op('SET_ADD', 146)
+ def_op('MAP_ADD', 147)
++def_op('LOAD_OTUS', 148)
+ 
+ del def_op, name_op, jrel_op, jabs_op
+diff --git a/Python/ceval.c b/Python/ceval.c
+index 06ada97..cccea92 100644
+--- a/Python/ceval.c
++++ b/Python/ceval.c
+@@ -1126,6 +1126,21 @@ PyEval_EvalFrameEx(PyFrameObject *f, int throwflag)
+             PUSH(x);
+             goto fast_next_opcode;
+ 
++        case LOAD_OTUS:
++             x = GETLOCAL(0);
++             if (x != NULL) {
++                 Py_INCREF(x);
++                 PUSH(x);
++                 x = GETITEM(consts, oparg);
++                 Py_INCREF(x);
++                 PUSH(x);
++                 goto fast_next_opcode;
++             }
++             format_exc_check_arg(PyExc_UnboundLocalError,
++                 UNBOUNDLOCAL_ERROR_MSG,
++                 PyTuple_GetItem(co->co_varnames, oparg));
++             break;
++
+         PREDICTED_WITH_ARG(STORE_FAST);
+         case STORE_FAST:
+             v = POP();
+diff --git a/Python/peephole.c b/Python/peephole.c
+index fb6cd03..30d49b7 100644
+--- a/Python/peephole.c
++++ b/Python/peephole.c
+@@ -423,6 +423,15 @@ PyCode_Optimize(PyObject *code, PyObject* consts, PyObject *names,
+                 cumlc = 0;
+                 break;
+ 
++            case LOAD_FAST:
++                 {
++                 j = GETARG(codestr, i);
++                 if (codestr[i+3] == LOAD_CONST && j == 0) {
++                     codestr[i+3] = LOAD_OTUS;
++                     memset(codestr+i, NOP, 3);
++                 }
++                 } break;
++
+                 /* Try to fold tuples of constants (includes a case for lists
+                    which are only used for "in" and "not in" tests).
+                    Skip over BUILD_SEQN 1 UNPACK_SEQN 1.
